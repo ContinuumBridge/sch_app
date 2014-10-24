@@ -1,9 +1,9 @@
 {
-    "exe": "shc_app.py", 
+    "exe": "sch_app.py", 
     "description": "Monitors and reports various characterisitcs", 
-    "url": "https://github.com/ContinuumBridge/shc_app/archive/v0.0.1.tar.gz", 
+    "url": "https://github.com/ContinuumBridge/sch_app/archive/v0.0.1.tar.gz", 
     "app_resource": "/api/bridge/v1/app/9/", 
     "version": "0.0.1", 
     "provider": "ContinuumBridge", 
-    "name": "SHC App"
+    "name": "SCH App"
 }
