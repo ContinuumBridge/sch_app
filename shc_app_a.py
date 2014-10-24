@@ -1,11 +1,11 @@
 #!/usr/bin/env python
-# eew_app.py
+# sch_app_a.py
 # Copyright (C) ContinuumBridge Limited, 2014 - All Rights Reserved
 # Unauthorized copying of this file, via any medium is strictly prohibited
 # Proprietary and confidential
 # Written by Peter Claydon
 #
-ModuleName = "eew_app" 
+ModuleName = "sch_app" 
 
 import sys
 import os.path
@@ -16,8 +16,11 @@ from cbconfig import *
 import requests
 import json
 from twisted.internet import reactor
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
-USER                     = "ea2f0e06ff8123b7f46f77a3a451731a"
+
 SEND_DELAY               = 20  # Time to gather values for a device before sending them
 # Default values:
 config = {
@@ -45,7 +48,8 @@ config = {
     'battery': 'True',
     'battery_min_change': 1.0,
     'connected': 'True',
-    'slow_polling_interval': 600.0
+    'slow_polling_interval': 600.0,
+    'geras_key': 'undefined'
 }
 
 class DataManager:
@@ -61,10 +65,11 @@ class DataManager:
         logging.debug("%s sendValues, device: %s length: %s", ModuleName, deviceID, str(len(values)))
         headers = {'Content-Type': 'application/json'}
         try:
-            r = requests.post(url, auth=(USER, ''), data=json.dumps({"e": values}), headers=headers)
+            r = requests.post(url, auth=(config["geras_key"], ''), data=json.dumps({"e": values}), headers=headers)
             status = r.status_code
             success = True
-        except:
+        except Exception as inst:
+            logging.warning("%s sendValues failed, type: %s, exception args: %s", ModuleName, type(inst), str(inst.args))
             success = False
         if status !=200 or not success:
             logging.debug("%s sendValues failed, status: %s", ModuleName, status)
@@ -369,7 +374,7 @@ class App(CbApp):
         self.appClass = "monitor"
         self.state = "stopped"
         self.status = "ok"
-        configFile = CB_CONFIG_DIR + "eew_app.config"
+        configFile = CB_CONFIG_DIR + "shc_app.config"
         global config
         try:
             with open(configFile, 'r') as configFile:
