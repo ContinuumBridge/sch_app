@@ -374,7 +374,7 @@ class App(CbApp):
         self.appClass = "monitor"
         self.state = "stopped"
         self.status = "ok"
-        configFile = CB_CONFIG_DIR + "shc_app.config"
+        configFile = CB_CONFIG_DIR + "sch_app.config"
         global config
         try:
             with open(configFile, 'r') as configFile:
