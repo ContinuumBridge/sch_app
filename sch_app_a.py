@@ -377,12 +377,12 @@ class App(CbApp):
         configFile = CB_CONFIG_DIR + "sch_app.config"
         global config
         try:
-            with open(configFile, 'r') as configFile:
-                newConfig = json.load(configFile)
-                logging.info('%s Read eew_app.config', ModuleName)
+            with open(configFile, 'r') as f:
+                newConfig = json.load(f)
+                logging.info('%s Read sch_app.config', ModuleName)
                 config.update(newConfig)
         except:
-            logging.warning('%s eew_app.config does not exist or file is corrupt', ModuleName)
+            logging.warning('%s sch_app.config does not exist or file is corrupt', ModuleName)
         for c in config:
             if c.lower in ("true", "t", "1"):
                 config[c] = True
