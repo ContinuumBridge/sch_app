@@ -20,6 +20,10 @@ import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
+# For entry/exit
+IN_PIR_TO_DOOR_TIME = 30   
+DOOR_CLOSE_TO_IN_PIR_TIME = 10
+DOOR_OPEN_TO_IN_PIR_TIME = 10
 
 SEND_DELAY               = 20  # Time to gather values for a device before sending them
 # Default values:
@@ -170,6 +174,12 @@ class DataManager:
                   {"n":"connected", "v":v, "t":timeStamp}
                  ]
         self.storeValues(values, deviceID)
+
+    def storeEntryExit(self, location, timeStamp, action, v):
+        values = [
+                  {"n":action, "v":v, "t":timeStamp}
+                 ]
+        self.storeValues(values, location)
 
 class Accelerometer:
     def __init__(self, id):
@@ -368,6 +378,136 @@ class Connected():
             self.dm.storeConnected(self.id, timeStamp, b) 
             self.previous = b
 
+class pillbox():
+    def __init__(self):
+        self.magnet_av = [0.0, 0.0, 0.0]
+
+    def updateMagnet(self, mag):
+        self.current = mag
+
+    def calcAverage(self):
+        points_to_average = 16
+
+class EntryExit():
+    def __init__(self):
+        self.inside_triggered = False
+        self.inside_pir_on = False
+        self.door_open = False
+        self.action = "nothing"
+        self.locations = []
+        self.checkExit = {}
+
+    def initExits(self, idToName):
+        self.idToName = idToName
+        splits = {}
+        for d in idToName:
+            splits[d] = idToName[d].split(" ")
+        for d in splits:
+            self.cbLog("debug", "initExits, device: " + d + " name: " + str(splits[d]))
+            self.cbLog("debug", "initExits, magsw test: " + splits[d][0][:5].lower())
+            if splits[d][0][:5].lower() == "magsw":
+                location = splits[d][2].lower()
+                self.cbLog("debug", "initExits, location: " + location)
+                for d2 in splits:
+                    self.cbLog("debug", "initExits, d2: " + str(d2))
+                    if splits[d2][0][:3].lower() == "pir" and splits[d2][1].lower() == "inside":
+                        self.cbLog("debug", "initExits, pir: " + str(splits[d2]))
+                        if splits[d2][2].lower() == location:
+                            loc = {"location": splits[d][2],
+                                   "magsw": d,
+                                   "ipir": d2}
+                            self.locations.append(loc)
+                            break
+        self.cbLog("debug", "initExits, locations: " + str(self.locations))
+        devs = []
+        for l in self.locations:
+            self.checkExit[l["location"]] = CheckExit(l["location"])
+            self.checkExit[l["location"]].cbLog = self.cbLog
+            self.checkExit[l["location"]].dm = self.dm
+            devs.append(l["magsw"])
+            devs.append(l["ipir"])
+        return devs
+
+    def onChange(self, devID, timeStamp, value):
+        for l in self.locations:
+            if devID == l["magsw"]:
+                self.checkExit[l["location"]].onChange("magsw", timeStamp, value)
+            elif devID == l["ipir"]:
+                self.checkExit[l["location"]].onChange("ipir", timeStamp, value)
+
+class CheckExit():
+    def __init__(self, location):
+        self.location = location
+        self.inside_pir_on_time = 0
+        self.inside_pir_off_time = 0
+        self.inside_pir_on = False
+        self.door_open = False
+        self.door_open_time = 0
+        self.door_close_time = 0
+        self.state = "idle"
+        reactor.callLater(10, self.fsm)
+
+    def onChange(self, sensor, timeStamp, value):
+        self.cbLog("debug", "CheckExit, onChange. loc: " + self.location + " sensor: " + sensor)
+        if sensor == "ipir":
+            if value == "on":
+                self.inside_pir_on_time = timeStamp
+                self.inside_pir_on = True
+            else:
+                self.inside_pir_off_time = timeStamp
+                self.inside_pir_on = False
+        if sensor == "magsw":
+            if value == "on":
+                self.door_open = True
+                self.door_open_time = timeStamp
+            else:
+                self.door_open = False
+                self.door_close_time = timeStamp
+              
+    def fsm(self):
+        # This method is called every second
+        prev_state = self.state
+        action = "none"
+        if self.state == "idle":
+            if self.door_open:
+                if self.door_open_time - self.inside_pir_on_time < IN_PIR_TO_DOOR_TIME or self.inside_pir_on:
+                    self.state = "check_going_out"
+                else:
+                    self.state = "check_coming_in"
+        elif self.state == "check_going_out":
+            if not self.door_open:
+                self.state = "check_went_out"
+        elif self.state == "check_went_out":
+            t = time.time()
+            if t - self.door_close_time > DOOR_CLOSE_TO_IN_PIR_TIME:
+                if self.inside_pir_on or t - self.inside_pir_off_time < DOOR_CLOSE_TO_IN_PIR_TIME - 4:
+                    action = "answered_door"
+                    self.state = "idle"
+                else:
+                    action = "went_out"
+                    self.state = "idle"
+        elif self.state == "check_coming_in":
+            if self.inside_pir_on:
+                action = "came_in"
+                self.state = "wait_door_close"
+            elif time.time() - self.door_close_time > DOOR_OPEN_TO_IN_PIR_TIME:
+                action = "open_and_close"
+                self.state = "wait_door_close"
+        elif self.state == "wait_door_close":
+            if not self.door_open:
+                self.state = "idle"
+        else:
+            self.cbLog("warning", "self.door algorithm imposssible self.state")
+            self.state = "idle"
+        if self.state != prev_state:
+            self.cbLog("debug", "checkExits, new state: " + self.state)
+        if action != "none":
+            self.cbLog("debug", "checkExits, action: " + action) 
+            self.dm.storeEntryExit(self.location, self.door_open_time, action, 0)
+            self.dm.storeEntryExit(self.location, self.door_open_time + 1, action, 1)
+            self.dm.storeEntryExit(self.location, self.door_open_time + 2, action, 0)
+        reactor.callLater(1, self.fsm)
+
 class App(CbApp):
     def __init__(self, argv):
         logging.basicConfig(filename=CB_LOGFILE,level=CB_LOGGING_LEVEL,format='%(asctime)s %(message)s')
@@ -404,6 +544,7 @@ class App(CbApp):
         self.devices = []
         self.devServices = [] 
         self.idToName = {} 
+        self.entryExitIDs = []
         #CbApp.__init__ MUST be called
         CbApp.__init__(self, argv)
 
@@ -485,6 +626,9 @@ class App(CbApp):
                 if b.id == self.idToName[message["id"]]:
                     b.processBinary(message)
                     break
+            for n in self.entryExitIDs:
+                if n == message["id"]:
+                    self.entryExit.onChange(message["id"], message["timeStamp"], message["data"])
         elif message["characteristic"] == "power":
             for b in self.power:
                 if b.id == self.idToName[message["id"]]:
@@ -591,17 +735,23 @@ class App(CbApp):
         self.setState("running")
 
     def onConfigureMessage(self, config):
-        """ Config is based on what sensors are available """
+        idToName2 = {}
         for adaptor in config["adaptors"]:
             adtID = adaptor["id"]
             if adtID not in self.devices:
                 # Because configure may be re-called if devices are added
                 name = adaptor["name"]
                 friendly_name = adaptor["friendly_name"]
-                logging.debug("%s Configure app. Adaptor name: %s", ModuleName, name)
+                self.cbLog("debug", "Configure app. Adaptor id: " +  adtID + " name: " + name + " friendly_name: " + friendly_name)
+                idToName2[adtID] = friendly_name
                 self.idToName[adtID] = friendly_name.replace(" ", "_")
                 self.devices.append(adtID)
         self.dm = DataManager(self.bridge_id)
+        self.entryExit = EntryExit()
+        self.entryExit.cbLog = self.cbLog
+        self.entryExit.dm = self.dm
+        self.entryExitIDs = self.entryExit.initExits(idToName2)
+        self.cbLog("debug", "onConfigureMessage, entryExitIDs: " + str(self.entryExitIDs))
         self.setState("starting")
 
 if __name__ == '__main__':
