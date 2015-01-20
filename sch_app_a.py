@@ -10,7 +10,6 @@ ModuleName = "sch_app"
 import sys
 import os.path
 import time
-import logging
 from cbcommslib import CbApp
 from cbconfig import *
 import requests
@@ -21,9 +20,10 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 # For entry/exit
-IN_PIR_TO_DOOR_TIME = 30   
-DOOR_CLOSE_TO_IN_PIR_TIME = 10
-DOOR_OPEN_TO_IN_PIR_TIME = 10
+IN_PIR_TO_DOOR_TIME               = 30   
+DOOR_CLOSE_TO_IN_PIR_TIME         = 10
+DOOR_OPEN_TO_IN_PIR_TIME          = 15
+MAX_DOOR_OPEN_TIME                = 60
 
 SEND_DELAY               = 20  # Time to gather values for a device before sending them
 # Default values:
@@ -66,17 +66,16 @@ class DataManager:
     def sendValuesThread(self, values, deviceID):
         url = self.baseurl + deviceID
         status = 0
-        logging.debug("%s sendValues, device: %s length: %s", ModuleName, deviceID, str(len(values)))
         headers = {'Content-Type': 'application/json'}
         try:
             r = requests.post(url, auth=(config["geras_key"], ''), data=json.dumps({"e": values}), headers=headers)
             status = r.status_code
             success = True
         except Exception as inst:
-            logging.warning("%s sendValues failed, type: %s, exception args: %s", ModuleName, type(inst), str(inst.args))
+            self.cbLog("warning", "sendValues failed: " + str(type(inst)) + " " + str(inst.args))
             success = False
         if status !=200 or not success:
-            logging.debug("%s sendValues failed, status: %s", ModuleName, status)
+            self.cbLog("debug", "sendValues failed, status: " + str(status))
             # On error, store the values that weren't sent ready to be sent again
             reactor.callFromThread(self.storeValues, values, deviceID)
 
@@ -300,7 +299,7 @@ class Humid():
     def processHumidity (self, resp):
         h = resp["data"]
         timeStamp = resp["timeStamp"] 
-        if abs(h-self.previous) >= config["humidity_min_change"]:
+        if abs(self.previous) >= config["humidity_min_change"]:
             self.dm.storeHumidity(self.id, timeStamp, h) 
             self.previous = h
 
@@ -402,6 +401,8 @@ class EntryExit():
         splits = {}
         for d in idToName:
             splits[d] = idToName[d].split(" ")
+            if len(splits[d]) == 1:
+                splits[d] = idToName[d].split("-")
         for d in splits:
             self.cbLog("debug", "initExits, device: " + d + " name: " + str(splits[d]))
             self.cbLog("debug", "initExits, magsw test: " + splits[d][0][:5].lower())
@@ -490,9 +491,15 @@ class CheckExit():
             if self.inside_pir_on:
                 action = "came_in"
                 self.state = "wait_door_close"
-            elif time.time() - self.door_close_time > DOOR_OPEN_TO_IN_PIR_TIME:
+            elif time.time() - self.door_open_time > DOOR_OPEN_TO_IN_PIR_TIME:
                 action = "open_and_close"
                 self.state = "wait_door_close"
+        elif self.state == "wait_door_close":
+            if not self.door_open:
+                self.state = "idle"
+            elif time.time() - self.door_open_time > MAX_DOOR_OPEN_TIME:
+                action = "door_open_too_long"
+                self.state = "wait_long_door_open"
         elif self.state == "wait_door_close":
             if not self.door_open:
                 self.state = "idle"
@@ -510,25 +517,9 @@ class CheckExit():
 
 class App(CbApp):
     def __init__(self, argv):
-        logging.basicConfig(filename=CB_LOGFILE,level=CB_LOGGING_LEVEL,format='%(asctime)s %(message)s')
         self.appClass = "monitor"
         self.state = "stopped"
         self.status = "ok"
-        configFile = CB_CONFIG_DIR + "sch_app.config"
-        global config
-        try:
-            with open(configFile, 'r') as f:
-                newConfig = json.load(f)
-                logging.info('%s Read sch_app.config', ModuleName)
-                config.update(newConfig)
-        except:
-            logging.warning('%s sch_app.config does not exist or file is corrupt', ModuleName)
-        for c in config:
-            if c.lower in ("true", "t", "1"):
-                config[c] = True
-            elif c.lower in ("false", "f", "0"):
-                config[c] = False
-        logging.debug('%s Config: %s', ModuleName, config)
         self.accel = []
         self.gyro = []
         self.magnet = []
@@ -553,14 +544,13 @@ class App(CbApp):
             self.state = "running"
         else:
             self.state = action
-        logging.debug("%s state: %s", ModuleName, self.state)
         msg = {"id": self.id,
                "status": "state",
                "state": self.state}
         self.sendManagerMessage(msg)
 
     def onConcMessage(self, resp):
-        #logging.debug("%s resp from conc: %s", ModuleName, resp)
+        #self.cbLog("debug", "resp from conc: " + str(resp))
         if resp["resp"] == "config":
             msg = {
                "msg": "req",
@@ -585,7 +575,7 @@ class App(CbApp):
         This method is called in a thread by cbcommslib so it will not cause
         problems if it takes some time to complete (other than to itself).
         """
-        #logging.debug("%s onadaptorData, message: %s", ModuleName, message)
+        #self.cbLog("debug", "onadaptorData, message: " + str(message))
         if message["characteristic"] == "acceleration":
             for a in self.accel:
                 if a.id == self.idToName[message["id"]]: 
@@ -651,7 +641,7 @@ class App(CbApp):
                     break
 
     def onAdaptorService(self, message):
-        #logging.debug("%s onAdaptorService, message: %s", ModuleName, message)
+        #self.cbLog("debug", "onAdaptorService, message: " + str(message))
         self.devServices.append(message)
         serviceReq = []
         for p in message["service"]:
@@ -734,15 +724,15 @@ class App(CbApp):
         self.sendMessage(msg, message["id"])
         self.setState("running")
 
-    def onConfigureMessage(self, config):
+    def onConfigureMessage(self, managerConfig):
         idToName2 = {}
-        for adaptor in config["adaptors"]:
+        for adaptor in managerConfig["adaptors"]:
             adtID = adaptor["id"]
             if adtID not in self.devices:
-                # Because configure may be re-called if devices are added
+                # Because managerConfigure may be re-called if devices are added
                 name = adaptor["name"]
                 friendly_name = adaptor["friendly_name"]
-                self.cbLog("debug", "Configure app. Adaptor id: " +  adtID + " name: " + name + " friendly_name: " + friendly_name)
+                self.cbLog("debug", "managerConfigure app. Adaptor id: " +  adtID + " name: " + name + " friendly_name: " + friendly_name)
                 idToName2[adtID] = friendly_name
                 self.idToName[adtID] = friendly_name.replace(" ", "_")
                 self.devices.append(adtID)
@@ -752,6 +742,22 @@ class App(CbApp):
         self.entryExit.dm = self.dm
         self.entryExitIDs = self.entryExit.initExits(idToName2)
         self.cbLog("debug", "onConfigureMessage, entryExitIDs: " + str(self.entryExitIDs))
+        configFile = CB_CONFIG_DIR + "sch_app.config"
+        global config
+        try:
+            with open(configFile, 'r') as f:
+                newConfig = json.load(f)
+                self.cbLog("debug", "Read sch_app.config")
+                config.update(newConfig)
+        except Exception as ex:
+            self.cbLog("warning", "sch_app.config does not exist or file is corrupt")
+            self.cbLog("warning", "Exception: " + str(type(ex)) + str(ex.args))
+        for c in config:
+            if c.lower in ("true", "t", "1"):
+                config[c] = True
+            elif c.lower in ("false", "f", "0"):
+                config[c] = False
+        self.cbLog("debug", "Config: " + str(config))
         self.setState("starting")
 
 if __name__ == '__main__':
