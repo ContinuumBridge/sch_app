@@ -68,10 +68,10 @@ Entry-Exit
 
 If "entry_exit" is set to "True", door entries and exits will be monitored. For this feature to work, each door needs a magnetic switch to report when it is open and there needs to be a PIR sensor inside the door. The PIR does not need to point at the door, but it should be in a position where it is always active within 15 seconds of someone leaving the building or within 15 seconds of someone coming in the door. For this feature to work, the following naming convention must be adopted for the "friendly names" (see documentation on http://continuumbridge.readme.io/) of the devices associated with the doors:
 
-* For the magnetic switch: MagSW??? Door_Name
-* For the PIR:  PIR??? Inside Door_Name
+* For the magnetic switch:  MagSW???  Location  Door_Name
+* For the PIR:              PIR???    Inside    Door_Name
 
-The ??? indicates one of more arbitary characters. The app only matches on the "MagSW" and "PIR". The matches are not case-sensitive.
+The ??? indicates one of more arbitary characters. The app only matches on the "MagSW" and "PIR". The matches are not case-sensitive. The word "Location" can be anything you like. The word "Inside" MUST be "Inside". The Door_Name of both sensors must match.
 
 The word "Inside" must be used as the second word for the PIR. This allows for there also to be a PIR outside the door in a future modification to the app.
 
