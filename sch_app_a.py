@@ -60,11 +60,15 @@ class DataManager:
     """ Managers data storage for all sensors """
     def __init__(self, bridge_id):
         self.baseurl = "http://geras.1248.io/series/" + bridge_id + "/"
+        self.daurl = "http://geras.1248.io/series/" + "DA" + bridge_id[3:] + "/"
         self.s={}
         self.waiting=[]
 
-    def sendValuesThread(self, values, deviceID):
-        url = self.baseurl + deviceID
+    def sendValuesThread(self, values, deviceID, da):
+        if da:
+            url = self.daurl + deviceID
+        else:
+            url = self.baseurl + deviceID
         status = 0
         headers = {'Content-Type': 'application/json'}
         try:
@@ -79,20 +83,20 @@ class DataManager:
             # On error, store the values that weren't sent ready to be sent again
             reactor.callFromThread(self.storeValues, values, deviceID)
 
-    def sendValues(self, deviceID):
+    def sendValues(self, deviceID, da):
         values = self.s[deviceID]
         # Call in thread as it may take a second or two
         self.waiting.remove(deviceID)
         del self.s[deviceID]
-        reactor.callInThread(self.sendValuesThread, values, deviceID)
+        reactor.callInThread(self.sendValuesThread, values, deviceID, da)
 
-    def storeValues(self, values, deviceID):
+    def storeValues(self, values, deviceID, da=False):
         if not deviceID in self.s:
             self.s[deviceID] = values
         else:
             self.s[deviceID].append(values)
         if not deviceID in self.waiting:
-            reactor.callLater(SEND_DELAY, self.sendValues, deviceID)
+            reactor.callLater(SEND_DELAY, self.sendValues, deviceID, da)
             self.waiting.append(deviceID)
 
     def storeAccel(self, deviceID, timeStamp, a):
@@ -178,7 +182,7 @@ class DataManager:
         values = [
                   {"n":action, "v":v, "t":timeStamp}
                  ]
-        self.storeValues(values, location)
+        self.storeValues(values, location, True)
 
 class Accelerometer:
     def __init__(self, id):
