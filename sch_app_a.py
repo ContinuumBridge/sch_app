@@ -28,33 +28,67 @@ MAX_DOOR_OPEN_TIME                = 60
 SEND_DELAY               = 20  # Time to gather values for a device before sending them
 # Default values:
 config = {
-    'temperature': 'True',
-    'temp_min_change': 0.2,
-    'irtemperature': 'False',
-    'irtemp_min_change': 0.5,
-    'humidity': 'True',
-    'humidity_min_change': 0.2,
-    'buttons': 'False',
-    'accel': 'False',
-    'accel_min_change': 0.02,
-    'accel_polling_interval': 3.0,
-    'gyro': 'False',
-    'gyro_min_change': 0.5,
+    "temperature": "True",
+    "temp_min_change": 0.2,
+    "irtemperature": "False",
+    "irtemp_min_change": 0.5,
+    "humidity": "True",
+    "humidity_min_change": 0.2,
+    "buttons": "False",
+    "accel": "False",
+    "accel_min_change": 0.02,
+    "accel_polling_interval": 3.0,
+    "gyro": "False",
+    "gyro_min_change": 0.5,
     "gyro_polling_interval": 3.0,
-    'magnet': 'False',
-    'magnet_min_change': 1.5,
-    'magnet_polling_interval': 3.0,
-    'binary': 'True',
-    'luminance': 'True',
-    'luminance_min_change': 1.0,
-    'power': 'True',
-    'power_min_change': 1.0,
-    'battery': 'True',
-    'battery_min_change': 1.0,
-    'connected': 'True',
-    'slow_polling_interval': 600.0,
-    'geras_key': 'undefined'
+    "magnet": "False",
+    "magnet_min_change": 1.5,
+    "magnet_polling_interval": 3.0,
+    "binary": "True",
+    "luminance": "True",
+    "luminance_min_change": 1.0,
+    "power": "True",
+    "power_min_change": 1.0,
+    "battery": "True",
+    "battery_min_change": 1.0,
+    "connected": "True",
+    "slow_polling_interval": 600.0,
+    "night_wandering": "False",
+    "night_start": "00:30",
+    "night_end": "07:00",
+    "night_sensors": [],
+    "cid": "none",
+    "geras_key": "undefined"
 }
+
+def betweenTimes(t, t1, t2):
+    # True if epoch t is between times of day t1 and t2 (in 24-hour clock format: "23:10")
+    t1secs = (60*int(t1.split(":")[0]) + int(t1.split(":")[1])) * 60
+    t2secs = (60*int(t2.split(":")[0]) + int(t2.split(":")[1])) * 60
+    stamp = time.strftime("%Y %b %d %H:%M", time.localtime(t)).split()
+    today = stamp
+    today[3] = "00:00"
+    today_e = time.mktime(time.strptime(" ".join(today), "%Y %b %d %H:%M"))
+    yesterday_e = today_e - 24*3600
+    #print "today_e: ", today_e, "yesterday_e: ", yesterday_e
+    tt1 = [yesterday_e + t1secs, today_e + t1secs]
+    tt2 = [yesterday_e + t2secs, today_e + t2secs]
+    #print "tt1: ", tt1, " tt2: ", tt2
+    smallest = 50000
+    decision = False
+    if t - tt1[0] < smallest and t - tt1[0] > 0:
+        smallest = t - tt1[0]
+        decision = True
+    if t - tt2[0] < smallest and t -tt2[0] > 0:
+        smallest = t - tt2[0]
+        decision = False
+    if t - tt1[1] < smallest and t -tt1[1] > 0:
+        smallest = t - tt1[1]
+        decision = True
+    if t - tt2[1] < smallest and t - tt2[1] > 0:
+        smallest = t - tt2[1]
+        decision = False
+    return decision
 
 class DataManager:
     """ Managers data storage for all sensors """
@@ -391,6 +425,43 @@ class pillbox():
     def calcAverage(self):
         points_to_average = 16
 
+class NightWander():
+    def __init__(self, aid):
+        global config
+        self.aid = aid
+
+    def setNames(self, idToName):
+        self.idToName = idToName
+        if config["night_wandering"]:
+            if config["night_sensors"] == []:
+                for d in idToName:
+                    config["night_sensors"].append(d)
+                    self.cbLog("debug", "NightWander. night sensors: " + str(config["night_sensors"]))
+            else:
+                for n in config["night_sensors"]:
+                    found = False
+                    for d in idToName:
+                        if n in d[idToName]:
+                            found = True
+                            break
+                    if not found:
+                        self.cbLog("info", "NightWander. Sensor name does not exist: " + n)
+
+    def onChange(self, devID, timeStamp, value):
+        if value == "on":
+            alarm = betweenTimes(timeStamp, config["night_start"], config["night_end"])
+            self.cbLog("debug", "Night Wander: " + str(alarm) + ": " + str(time.asctime(time.localtime(timeStamp))))
+            msg = {
+                   "source": self.aid,
+                   "destination": config["cid"],
+                   "body": {"m": "alarm",
+                            "s": self.idToName[devID],
+                            "t": timeStamp,
+                            "n": 0
+                           }
+                  }
+            self.sendMessage(msg, "conc")
+
 class EntryExit():
     def __init__(self):
         self.inside_triggered = False
@@ -553,26 +624,13 @@ class App(CbApp):
                "state": self.state}
         self.sendManagerMessage(msg)
 
-    def onConcMessage(self, resp):
-        #self.cbLog("debug", "resp from conc: " + str(resp))
-        if resp["resp"] == "config":
-            msg = {
-               "msg": "req",
-               "verb": "post",
-               "channel": int(self.id[3:]),
-               "body": {
-                        "msg": "services",
-                        "appID": self.id,
-                        "idToName": self.idToName,
-                        "services": self.devServices
-                       }
-                  }
-            self.sendMessage(msg, "conc")
+    def onConcMessage(self, message):
+        self.cbLog("debug", "resp from conc: " + str(message))
+        if "body" in message:
+            if "a" in message["body"]:
+                self.cbLog("debug", "Received ack from client: " + message["body"]["n"])
         else:
-            msg = {"appID": self.id,
-                   "msg": "error",
-                   "message": "unrecognised response from concentrator"}
-            self.sendMessage(msg, "conc")
+            self.cbLog("warning", "Received message from client with no body")
 
     def onAdaptorData(self, message):
         """
@@ -623,6 +681,9 @@ class App(CbApp):
             for n in self.entryExitIDs:
                 if n == message["id"]:
                     self.entryExit.onChange(message["id"], message["timeStamp"], message["data"])
+            for n in config["night_sensors"]:
+                if n == message["id"]:
+                    self.nightWander.onChange(message["id"], message["timeStamp"], message["data"])
         elif message["characteristic"] == "power":
             for b in self.power:
                 if b.id == self.idToName[message["id"]]:
@@ -729,25 +790,8 @@ class App(CbApp):
         self.setState("running")
 
     def onConfigureMessage(self, managerConfig):
-        idToName2 = {}
-        for adaptor in managerConfig["adaptors"]:
-            adtID = adaptor["id"]
-            if adtID not in self.devices:
-                # Because managerConfigure may be re-called if devices are added
-                name = adaptor["name"]
-                friendly_name = adaptor["friendly_name"]
-                self.cbLog("debug", "managerConfigure app. Adaptor id: " +  adtID + " name: " + name + " friendly_name: " + friendly_name)
-                idToName2[adtID] = friendly_name
-                self.idToName[adtID] = friendly_name.replace(" ", "_")
-                self.devices.append(adtID)
-        self.dm = DataManager(self.bridge_id)
-        self.entryExit = EntryExit()
-        self.entryExit.cbLog = self.cbLog
-        self.entryExit.dm = self.dm
-        self.entryExitIDs = self.entryExit.initExits(idToName2)
-        self.cbLog("debug", "onConfigureMessage, entryExitIDs: " + str(self.entryExitIDs))
-        configFile = CB_CONFIG_DIR + "sch_app.config"
         global config
+        configFile = CB_CONFIG_DIR + "sch_app.config"
         try:
             with open(configFile, 'r') as f:
                 newConfig = json.load(f)
@@ -762,6 +806,29 @@ class App(CbApp):
             elif c.lower in ("false", "f", "0"):
                 config[c] = False
         self.cbLog("debug", "Config: " + str(config))
+        idToName2 = {}
+        for adaptor in managerConfig["adaptors"]:
+            adtID = adaptor["id"]
+            if adtID not in self.devices:
+                # Because managerConfigure may be re-called if devices are added
+                name = adaptor["name"]
+                friendly_name = adaptor["friendly_name"]
+                self.cbLog("debug", "managerConfigure app. Adaptor id: " +  adtID + " name: " + name + " friendly_name: " + friendly_name)
+                idToName2[adtID] = friendly_name
+                self.idToName[adtID] = friendly_name.replace(" ", "_")
+                self.devices.append(adtID)
+        self.dm = DataManager(self.bridge_id)
+        self.dm.cbLog = self.cbLog
+        self.entryExit = EntryExit()
+        self.entryExit.cbLog = self.cbLog
+        self.entryExit.dm = self.dm
+        self.entryExitIDs = self.entryExit.initExits(idToName2)
+        self.cbLog("debug", "onConfigureMessage, entryExitIDs: " + str(self.entryExitIDs))
+        self.nightWander = NightWander(self.id)
+        self.nightWander.cbLog = self.cbLog
+        self.nightWander.setNames(idToName2)
+        self.nightWander.sendMessage = self.sendMessage
+        self.nightWander.dm = self.dm
         self.setState("starting")
 
 if __name__ == '__main__':
