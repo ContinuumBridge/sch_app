@@ -450,17 +450,18 @@ class NightWander():
     def onChange(self, devID, timeStamp, value):
         if value == "on":
             alarm = betweenTimes(timeStamp, config["night_start"], config["night_end"])
-            self.cbLog("debug", "Night Wander: " + str(alarm) + ": " + str(time.asctime(time.localtime(timeStamp))))
-            msg = {
-                   "source": self.aid,
-                   "destination": config["cid"],
-                   "body": {"m": "alarm",
-                            "s": self.idToName[devID],
-                            "t": timeStamp,
-                            "n": 0
-                           }
-                  }
-            self.sendMessage(msg, "conc")
+            if alarm:
+                self.cbLog("debug", "Night Wander: " + str(alarm) + ": " + str(time.asctime(time.localtime(timeStamp))))
+                msg = {
+                       "source": self.aid,
+                       "destination": config["cid"],
+                       "body": {"m": "alarm",
+                                "s": self.idToName[devID],
+                                "t": timeStamp,
+                                "n": 0
+                               }
+                      }
+                self.sendMessage(msg, "conc")
 
 class EntryExit():
     def __init__(self):
