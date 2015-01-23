@@ -57,6 +57,7 @@ config = {
     "night_start": "00:30",
     "night_end": "07:00",
     "night_sensors": [],
+    "night_ignore_time": 600,
     "cid": "none",
     "geras_key": "undefined"
 }
@@ -415,6 +416,30 @@ class Connected():
             self.dm.storeConnected(self.id, timeStamp, b) 
             self.previous = b
 
+class Client():
+    def __init__(self, aid):
+        self.aid = aid
+        self.count = 0
+        self.messages = []
+
+    def send(self, message):
+        message["body"]["n"] = self.count
+        self.count += 1
+        self.messages.append(message)
+        self.sendMessage(message, "conc")
+
+    def receive(self, message):
+        self.cbLog("debug", "Message from client: " + str(message))
+        if "body" in message:
+            if "n" in message["body"]:
+                self.cbLog("debug", "Received ack from client: " + str(message["body"]["n"]))
+                for m in self.messages:
+                    if m["body"]["n"] == m:
+                        self.messages.remove(m)
+                        self.cbLog("debug", "Removed message " + str(m) + " from queue")
+        else:
+            self.cbLog("warning", "Received message from client with no body")
+
 class pillbox():
     def __init__(self):
         self.magnet_av = [0.0, 0.0, 0.0]
@@ -429,6 +454,7 @@ class NightWander():
     def __init__(self, aid):
         global config
         self.aid = aid
+        self.lastActive = 0
 
     def setNames(self, idToName):
         self.idToName = idToName
@@ -451,17 +477,18 @@ class NightWander():
         if value == "on":
             alarm = betweenTimes(timeStamp, config["night_start"], config["night_end"])
             if alarm:
-                self.cbLog("debug", "Night Wander: " + str(alarm) + ": " + str(time.asctime(time.localtime(timeStamp))))
-                msg = {
-                       "source": self.aid,
-                       "destination": config["cid"],
-                       "body": {"m": "alarm",
-                                "s": self.idToName[devID],
-                                "t": timeStamp,
-                                "n": 0
-                               }
-                      }
-                self.sendMessage(msg, "conc")
+                if timeStamp - self.lastActive > config["night_ignore_time"]:
+                    self.cbLog("debug", "Night Wander: " + str(alarm) + ": " + str(time.asctime(time.localtime(timeStamp))))
+                    msg = {
+                           "source": self.aid,
+                           "destination": config["cid"],
+                           "body": {"m": "alarm",
+                                    "s": self.idToName[devID],
+                                    "t": timeStamp
+                                   }
+                          }
+                    self.client.send(msg)
+                self.lastActive = timeStamp
 
 class EntryExit():
     def __init__(self):
@@ -626,12 +653,7 @@ class App(CbApp):
         self.sendManagerMessage(msg)
 
     def onConcMessage(self, message):
-        self.cbLog("debug", "resp from conc: " + str(message))
-        if "body" in message:
-            if "a" in message["body"]:
-                self.cbLog("debug", "Received ack from client: " + message["body"]["n"])
-        else:
-            self.cbLog("warning", "Received message from client with no body")
+        self.client.receive(message)
 
     def onAdaptorData(self, message):
         """
@@ -820,6 +842,9 @@ class App(CbApp):
                 self.devices.append(adtID)
         self.dm = DataManager(self.bridge_id)
         self.dm.cbLog = self.cbLog
+        self.client = Client(self.bridge_id)
+        self.client.sendMessage = self.sendMessage
+        self.client.cbLog = self.cbLog
         self.entryExit = EntryExit()
         self.entryExit.cbLog = self.cbLog
         self.entryExit.dm = self.dm
@@ -827,9 +852,8 @@ class App(CbApp):
         self.cbLog("debug", "onConfigureMessage, entryExitIDs: " + str(self.entryExitIDs))
         self.nightWander = NightWander(self.id)
         self.nightWander.cbLog = self.cbLog
+        self.nightWander.client = self.client
         self.nightWander.setNames(idToName2)
-        self.nightWander.sendMessage = self.sendMessage
-        self.nightWander.dm = self.dm
         self.setState("starting")
 
 if __name__ == '__main__':
