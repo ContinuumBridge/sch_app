@@ -474,6 +474,7 @@ class NightWander():
                         self.cbLog("info", "NightWander. Sensor name does not exist: " + n)
 
     def onChange(self, devID, timeStamp, value):
+        self.cbLog("debug", "Night Wander onChange, devID: " + devID + " value: " + value)
         if value == "on":
             alarm = betweenTimes(timeStamp, config["night_start"], config["night_end"])
             if alarm:
