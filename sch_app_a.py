@@ -462,16 +462,19 @@ class NightWander():
             if config["night_sensors"] == []:
                 for d in idToName:
                     config["night_sensors"].append(d)
-                    self.cbLog("debug", "NightWander. night sensors: " + str(config["night_sensors"]))
             else:
                 for n in config["night_sensors"]:
                     found = False
                     for d in idToName:
-                        if n in d[idToName]:
+                        self.cbLog("debug", "NightWander. Matching n: " + n + " with d: " + d + " , idToName[d]: " + idToName[d])
+                        if n == idToName[d]:
+                            loc = config["night_sensors"].index(n) 
+                            config["night_sensors"][loc] = d
                             found = True
                             break
                     if not found:
                         self.cbLog("info", "NightWander. Sensor name does not exist: " + n)
+            self.cbLog("debug", "NightWander. night sensors: " + str(config["night_sensors"]))
 
     def onChange(self, devID, timeStamp, value):
         self.cbLog("debug", "Night Wander onChange, devID: " + devID + " value: " + value)
