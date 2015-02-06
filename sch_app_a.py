@@ -59,6 +59,7 @@ config = {
     "night_sensors": [],
     "night_ignore_time": 600,
     "cid": "none",
+    "client_test": "False",
     "geras_key": "undefined"
 }
 
@@ -455,6 +456,21 @@ class NightWander():
         global config
         self.aid = aid
         self.lastActive = 0
+        if config["client_test"]:
+            reactor.callLater(30, self.clientTest)
+
+    def clientTest(self):
+        self.cbLog("debug", "clientTest")
+        msg = {
+               "source": self.aid,
+               "destination": config["cid"],
+               "body": {"m": "alarm",
+                        "s": "Test",
+                        "t": time.time()
+                       }
+              }
+        self.client.send(msg)
+        reactor.callLater(20, self.clientTest)
 
     def setNames(self, idToName):
         self.idToName = idToName
