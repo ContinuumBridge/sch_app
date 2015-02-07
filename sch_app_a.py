@@ -456,7 +456,7 @@ class NightWander():
         global config
         self.aid = aid
         self.lastActive = 0
-        if config["client_test"]:
+        if config["client_test"] == 'True':
             reactor.callLater(30, self.clientTest)
 
     def clientTest(self):
