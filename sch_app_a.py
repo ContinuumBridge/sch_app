@@ -58,6 +58,8 @@ config = {
     "night_end": "07:00",
     "night_sensors": [],
     "night_ignore_time": 600,
+    "entry-exit": "False",
+    "entry-exits": [],
     "cid": "none",
     "client_test": "False",
     "geras_key": "undefined"
@@ -474,7 +476,7 @@ class NightWander():
 
     def setNames(self, idToName):
         self.idToName = idToName
-        if config["night_wandering"]:
+        if config["night_wandering"] == "True":
             if config["night_sensors"] == []:
                 for d in idToName:
                     config["night_sensors"].append(d)
@@ -521,6 +523,7 @@ class EntryExit():
 
     def initExits(self, idToName):
         self.idToName = idToName
+        """
         splits = {}
         for d in idToName:
             splits[d] = idToName[d].split(" ")
@@ -542,17 +545,33 @@ class EntryExit():
                                    "ipir": d2}
                             self.locations.append(loc)
                             break
-        self.cbLog("debug", "initExits, locations: " + str(self.locations))
+        """
         devs = []
-        for l in self.locations:
-            self.checkExit[l["location"]] = CheckExit(l["location"])
-            self.checkExit[l["location"]].cbLog = self.cbLog
-            self.checkExit[l["location"]].dm = self.dm
-            devs.append(l["magsw"])
-            devs.append(l["ipir"])
+        try:
+            if config["entry-exit"] == "True":
+                for c in config["entry-exits"]:
+                    loc = {}
+                    loc["location"] = c["location"]
+                    for d in idToName:
+                        if idToName[d] == c["inside_activity"]:
+                            loc["ipir"] = d
+                        if idToName[d] == c["door"]:
+                            loc["magsw"] = d
+                    self.locations.append(loc)
+            self.cbLog("debug", "initExits, locations: " + str(self.locations))
+            for l in self.locations:
+                self.checkExit[l["location"]] = CheckExit(l["location"])
+                self.checkExit[l["location"]].cbLog = self.cbLog
+                self.checkExit[l["location"]].dm = self.dm
+                devs.append(l["magsw"])
+                devs.append(l["ipir"])
+        except Exception as ex:
+            self.cbLog("warning", "entry-exit initialisation failed, probably due to corrupt sch_app.config file")
+            self.cbLog("warning", "Exception: " + str(type(ex)) + str(ex.args))
         return devs
 
     def onChange(self, devID, timeStamp, value):
+        #self.cbLog("debug", "EntryExit onChange, devID: " + "devID")
         for l in self.locations:
             if devID == l["magsw"]:
                 self.checkExit[l["location"]].onChange("magsw", timeStamp, value)
