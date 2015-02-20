@@ -49,11 +49,12 @@ Which parameters are actually sent and what processing is performed on them befo
         "luminance": "True",
         "luminance_min_change": 1.0,
         "slow_polling_interval": 300.0,
-        "entry_exit": "True",
         "night_wandering": "True",
         "night_start": "00:30",
         "night_end": "07:00",
         "night_sensors": ["Sensor 1", "Sensor 2"],
+        "entry-exit": "True",
+        "entry-exits": [{"location": "Location 1", "inside_activity": "Sensor 1", "door": "Sensor 2", "outside_activity": "Sensor 3"}],
         "pillbox": "True",
         "pillbox_start": ["06:00", "20:00"],
         "pillbox_end": ["08:00", "23:00"],
@@ -66,16 +67,14 @@ The file is in JSON format, but it is not important to understand this. Just cop
 Entry-Exit
 ---------
 
-If "entry_exit" is set to "True", door entries and exits will be monitored. For this feature to work, each door needs a magnetic switch to report when it is open and there needs to be a PIR sensor inside the door. The PIR does not need to point at the door, but it should be in a position where it is always active within 15 seconds of someone leaving the building or within 15 seconds of someone coming in the door. For this feature to work, the following naming convention must be adopted for the "friendly names" (see documentation on http://continuumbridge.readme.io/) of the devices associated with the doors:
+If "entry_exit" is set to "True", door entries and exits will be monitored. For this feature to work, each door needs a magnetic switch to report when it is open and there needs to be a PIR sensor inside the door. The PIR does not need to point at the door, but it should be in a position where it is always active within 15 seconds of someone leaving the building or within 15 seconds of someone coming in the door. Any number of doors may be monitored for entry-exit detection. Each one is controlled using an item in the "entry-exit" array in sch_app.config. The items in for each door have the following meaning:
 
-    For the magnetic switch:  MagSW???  Location  Door_Name
-    For the PIR:              PIR???    Inside    Door_Name
-
-The ??? indicates one of more arbitary characters. The app only matches on the "MagSW" and "PIR". The matches are not case-sensitive. The word "Location" can be anything you like. The word "Inside" MUST be "Inside". The Door_Name of both sensors must match.
-
-The word "Inside" must be used as the second word for the PIR. This allows for there also to be a PIR outside the door in a future modification to the app.
-
-Both magnetic switch and PIR must use the same word for Door_Name. This name must not contain any spaces. For example, the door name may be Front_Door or Back_Door.
+    location: the name of the location/door. This is used for reporting entries and exits,
+    inside_activity: the name of the PIR sensor inside the door,
+    door: the name of the magnetic switch on the door,
+    outside_activity: the name of the PIR sensor outside the door. 
+    
+The "outside_activity" sensor is not currently used by the algorithm.
 
 Once entry-exit montioring is enabled, the app sends four series to the database, as follows:
 
