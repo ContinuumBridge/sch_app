@@ -1,0 +1,9 @@
+{
+    "exe": "sch_app.py", 
+    "description": "Monitors and reports various characterisitcs", 
+    "url": "https://github.com/ContinuumBridge/sch_app/archive/v1.5.0.tar.gz", 
+    "app_resource": "/api/bridge/v1/app/64", 
+    "version": "1.5.0", 
+    "provider": "ContinuumBridge", 
+    "name": "SCH App"
+}
